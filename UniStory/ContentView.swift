@@ -6,12 +6,22 @@ import AVFoundation
 import SwiftXLSX
 import Foundation
 
+enum FieldType: String, Codable {
+    case text = "自定义"
+    case shotType = "景别"
+    case cameraMovement = "运镜"
+}
 
 struct FieldInfo: Identifiable, Codable {
     let id = UUID()
     var title: String
     var value: String
     var key: String // 全局唯一
+    var type: FieldType // 添加字段类型
+    
+    // 添加预设选项
+    static let shotTypeOptions = ["全景", "远景", "中景", "近景", "特写"]
+    static let cameraMovementOptions = ["固定", "横摇", "俯仰", "横移", "升降", "跟随", "环绕", "推拉"]
 }
 
 struct CurrentImage: Identifiable, Codable {
@@ -54,232 +64,329 @@ struct ContentView: View {
     @State private var newLensNumber: String = "" // 存储用户输入的新镜号
     @State private var tempScreenForLensChange: CurrentImage? // 临时存储要修改镜号的分镜
     
-    var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // 顶部导航栏
-                HStack {
-                    // 左侧按钮
-                    HStack(spacing: 0) {
-                        Button(action: {
-                            print("Hamburger menu tapped")
-                        }) {
-                            Image(systemName: "line.horizontal.3")
-                                .font(.system(size: 24))
-                                .foregroundColor(.black)
-                                .padding(16)
-                        }
-                        
-                        Button(action: {
-                            showPicker = true
-                        }) {
-                            Text("加载本地视频")
-                                .font(.system(size: 16))
-                                .foregroundColor(.blue)
-                                .padding(10)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.blue, lineWidth: 2)
-                                )
-                        }
-                        .padding(.trailing, 16)
+    @State private var isLoadingVideo = false
+    @State private var exportProgress: Float = 0
+    
+    @State private var isDrawerOpen = false
+    
+    @EnvironmentObject private var localization: LocalizationManager
+    
+    @State private var isSettingsActive = false
+    @State private var isLanguageActive = false
+    
+    init() {
+        // 设置音频会话，允许在静音模式下播放声音
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("设置音频会话失败: \(error)")
+        }
+    }
+    
+    // 添加一个用于顶部导航栏的视图
+    private var topNavigationBar: some View {
+        HStack {
+            // 左侧按钮
+            HStack(spacing: 0) {
+                Button(action: {
+                    withAnimation {
+                        isDrawerOpen.toggle()
                     }
-                    
-                    Spacer()
-                    
-                    // 右侧按钮
-                    Button(action: {
-                        exportToExcel()
-                    }) {
-                        Text("导出")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(8)
-                    }
-                    .padding(.trailing, 16)
-                }
-                .frame(height: 64)
-                .background(Color.white)
-                .shadow(radius: 4)
-                // 视频播放器或占位符
-                if let videoURL = videoURL {
-                    VideoPlayer(player: player)
-                        .frame(width: geometry.size.width, height: geometry.size.width * 3 / 4)
-                        .onAppear {
-                            player = AVPlayer(url: videoURL)
-                            player?.play()
-                        }
-                } else {
-                    Text("请选择一个视频")
-                        .foregroundColor(.gray)
-                        .frame(width: geometry.size.width, height: geometry.size.width * 3 / 4)
-                        .background(Color.black.opacity(0.1))
+                }) {
+                    Image(systemName: "line.horizontal.3")
+                        .font(.system(size: 24))
+                        .foregroundColor(.black)
+                        .padding(16)
                 }
                 
-                HStack(spacing: 0) {
+                Button(action: {
+                    showPicker = true
+                }) {
+                    Text("加载本地视频")
+                        .font(.system(size: 16))
+                        .foregroundColor(.blue)
+                        .padding(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.blue, lineWidth: 2)
+                        )
+                }
+                .padding(.trailing, 16)
+            }
+            
+            Spacer()
+            
+            // 右侧按钮
+            Button(action: {
+                exportToExcel()
+            }) {
+                Text("导出")
+                    .font(.system(size: 16))
+                    .foregroundColor(.white)
+                    .padding([.leading, .trailing], 16)
+                    .padding([.top, .bottom], 10)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+            }
+            .padding(.trailing, 16)
+        }
+        .frame(height: 64)
+        .background(Color.white)
+        .shadow(radius: 4)
+    }
+    
+    // 添加主要内容区域的视图
+    private func mainContentView(_ geometry: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            // 左侧滚动列表
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(screenList) { currentImage in
+                        screenListItemView(
+                            for: currentImage,
+                            geometry: geometry,
+                            selectedImage: selectedImage,
+                            onTap: { selected in
+                                selectedImage = selected
+                            }
+                        )
+                    }
+                }
+                .padding()
+            }
+            .frame(width: geometry.size.width * 0.4)
+            .overlay(
+                Rectangle()
+                    .frame(width: 1)
+                    .foregroundColor(Color(.systemGray5))
+                    .padding(.leading, geometry.size.width * 0.4 - 1),
+                alignment: .trailing
+            )
+            
+            // 右侧详情视图
+            VStack(alignment: .leading, spacing: 10) {
+                if let selected = selectedImage {
+                    HStack(spacing: 0) {
+                        Text("镜号：\(selected.lensNumber)")
+                        Spacer()
+                        Button(action: {
+                            isSettingsSheetPresented = true
+                        }) {
+                            Image(systemName: "gearshape")
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.trailing, 10)
+                        Button(action: {
+                            showDeleteConfirmation = true
+                        }) {
+                            Image(systemName: "trash")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    HStack(spacing: 0) {
+                        Text("时间：\(selected.timestamp)")
+                        Spacer()
+                        Button(action: {
+                            jumpVideoToTime(time: selected.timestamp)
+                        }) {
+                            Text("跳转到此时间")
+                                .font(.caption)
+                                .padding(6)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                    }
+                    .padding(.top)
+                    
                     ScrollView {
                         VStack(spacing: 10) {
-                            ForEach(screenList) { currentImage in
-                                screenListItemView(for: currentImage, geometry: geometry, onTap: { selected in
-                                    selectedImage = selected
-                                })
+                            ForEach(Array(selected.fields.enumerated()), id: \.offset) { index, field in
+                                fieldInputView(for: field, index: index)
                             }
                         }
-                        .padding()
                     }
-                    .frame(width: geometry.size.width * 0.4)
-                    .background(Color.gray.opacity(0.05))
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        if let selected = selectedImage {
-                        HStack(spacing: 0) {
-                            Text("分镜号：\(selected.lensNumber)")
-                            Spacer()
-                            Button(action: {
-                                isSettingsSheetPresented = true
-                            }) {
-                                Image(systemName: "gearshape")
-                                    .foregroundColor(.blue)
+                }
+            }
+            .frame(width: geometry.size.width * 0.6 - 26)
+            .background(Color.white)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding([.leading, .trailing], 13)
+            .padding([.top, .bottom], 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    var body: some View {
+        NavigationView {  // 将 NavigationView 移到最外层
+            ZStack {
+                // 主要内容
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        topNavigationBar
+                        
+                        // 视频播放器部分
+                        if isLoadingVideo {
+                            VStack {
+                                ProgressView(localization.localizedString("loading"))
+                                Text(String(format: localization.localizedString("progress"), Int(exportProgress * 100)))
+                                ProgressView(value: exportProgress)
+                                    .padding()
                             }
-                            Button(action: {
-                                showDeleteConfirmation = true
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.blue)
-                            }
+                            .frame(width: geometry.size.width, height: geometry.size.width * 9 / 16)
+                        } else if let videoURL = videoURL {
+                            VideoPlayer(player: player)
+                                .frame(width: geometry.size.width, height: geometry.size.width * 9 / 16)
+                                .onAppear {
+                                    player = AVPlayer(url: videoURL)
+                                    player?.play()
+                                }
+                        } else {
+                            Text(localization.localizedString("selectVideo"))
+                                .foregroundColor(.gray)
+                                .frame(width: geometry.size.width, height: geometry.size.width * 9 / 16)
+                                .background(Color.black.opacity(0.1))
                         }
-                        HStack(spacing: 0) {
-                            Text("时间：\(selected.timestamp)")
-                            Spacer()
-                            Button(action: {
-                                jumpVideoToTime(time: selected.timestamp)
-                            }) {
-                                Text("跳转到此时间")
+                        
+                        // 主要内容视图
+                        mainContentView(geometry)
+                    }
+                }
+                
+                // 抽屉菜单
+                if isDrawerOpen {
+                    ZStack {
+                        // 遮罩层
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation {
+                                    isDrawerOpen = false
+                                }
                             }
-                        }
-                        .padding([.top, .trailing])
-                        ForEach(Array(selected.fields.enumerated()), id: \.offset) { index, field in
-                                VStack(alignment: .leading) {
-                                    Text(field.title)
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-
-                                    TextField("请输入内容", text: Binding(
-                                        get: { selectedImage?.fields[index].value ?? "" },
-                                        set: { newValue in
-                                            selectedImage?.fields[index].value = newValue
+                        
+                        // 抽屉内容
+                        HStack(alignment: .top, spacing: 0) {
+                            VStack(spacing: 0) {
+                                // 添加安全区域的 padding
+                                Color(red: 0.98, green: 0.98, blue: 0.98)
+                                    .frame(height: 0)
+                                    .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
+                                
+                                // 第一组按钮
+                                VStack(spacing: 0) {
+                                    Button(action: {
+                                        // 处理导入操作
+                                        withAnimation {
+                                            isDrawerOpen = false
                                         }
-                                    ))
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .padding([.leading, .trailing])
-                                    .onChange(of: selectedImage?.fields[index].value ?? "") {
-                                        saveChanges()
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "square.and.arrow.down")
+                                                .foregroundColor(.black)
+                                                .frame(width: 20)
+                                            Text(localization.localizedString("import"))
+                                                .foregroundColor(.black)
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 12)
                                     }
                                 }
-                            }
-                        } else {
-                            Text("请选择一张图片")
-                                .foregroundColor(.gray)
-                                .padding()
-                        }
-                    }
-                    .frame(width: geometry.size.width * 0.6)
-                    .background(Color.white)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                HStack(spacing: 10) {
-                    if let screenshotImage = screenshotImage {
-                        Image(uiImage: screenshotImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 200)
-                            .padding()
-                    } else {
-                        Text("请先截图")
-                            .foregroundColor(.gray)
-                            .frame(width: 100, height: 60)
-                            .background(Color.black.opacity(0.1))
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("时间: \(formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1)))")
-                        HStack(spacing: 4) {
-                            Text("镜号: \(currentSeq)")
-                            Button(action: {
-                                if let tempImage = tempImageInfo {
-                                    tempScreenForLensChange = tempImage
-                                    let maxNumber = screenList.count + 1
-                                    newLensNumber = "\(maxNumber)"
-                                    showLensNumberInput = true
+                                .padding(.horizontal, 25)
+                                .background(Color(red: 1, green: 1, blue: 1))
+                                .cornerRadius(10)
+                                .padding(.horizontal, 25)
+                                .padding(.top, 20)
+                                
+                                // 第二组按钮
+                                VStack(spacing: 0) {
+                                    Button(action: {
+                                        isSettingsActive = true
+                                        withAnimation {
+                                            isDrawerOpen = false
+                                        }
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "gearshape")
+                                                .foregroundColor(.black)
+                                                .frame(width: 20)
+                                            Text(localization.localizedString("settings"))
+                                                .foregroundColor(.black)
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .foregroundColor(.gray)
+                                                .font(.system(size: 14))
+                                        }
+                                        .padding(.vertical, 12)
+                                    }
+                                    
+                                    Button(action: {
+                                        isLanguageActive = true
+                                        withAnimation {
+                                            isDrawerOpen = false
+                                        }
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "globe")
+                                                .foregroundColor(.black)
+                                                .frame(width: 20)
+                                            Text(localization.localizedString("language"))
+                                                .foregroundColor(.black)
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .foregroundColor(.gray)
+                                                .font(.system(size: 14))
+                                        }
+                                        .padding(.vertical, 12)
+                                    }
                                 }
-                            }) {
-                                Image(systemName: "pencil")
-                                    .foregroundColor(.blue)
+                                .padding(.horizontal, 25)
+                                .background(Color(red: 1, green: 1, blue: 1))
+                                .cornerRadius(10)
+                                .padding(.horizontal, 25)
+                                .padding(.top, 19)
+                                
+                                Spacer()
                             }
+                            .frame(width: 311)
+                            .background(Color(red: 0.98, green: 0.98, blue: 0.98))
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    
-                    Spacer()
-                    
-                    Button(action: takeScreenshot) {
-                        VStack(spacing: 5) {
-                            Image(systemName: "camera")
-                                .font(.system(size: 20))
-                            Text("截图")
-                                .font(.caption)
-                        }
-                        .frame(width: 48, height: 55)
-                        .foregroundColor(.white)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                    }
-                    Button(action: insertScreen) {
-                        VStack(spacing: 5) {
-                            Image(systemName: "plus.square")
-                                .font(.system(size: 20))
-                            Text("插入")
-                                .font(.caption)
-                        }
-                        .frame(width: 48, height: 55)
-                        .foregroundColor(.blue)
-                        .background(Color.blue.opacity(0.1))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-                        )
-                        .cornerRadius(10)
-                    }
+                    .transition(.move(edge: .leading))
                 }
-                .padding([.leading, .trailing])
-                .frame(height: 80)
+                
+                // 添加导航链接
+                NavigationLink(destination: SettingsPageView(), isActive: $isSettingsActive) {
+                    EmptyView()
+                }
+                NavigationLink(destination: LanguageSelectionView(), isActive: $isLanguageActive) {
+                    EmptyView()
+                }
             }
         }
+        .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showPicker) {
-            PhotoPicker(videoURL: $videoURL)
+            PhotoPicker(videoURL: $videoURL, 
+                        isLoadingVideo: $isLoadingVideo, 
+                        exportProgress: $exportProgress)
         }
         .sheet(isPresented: $isSettingsSheetPresented) {
             SettingsSheet(globalFields: $globalFields) { updatedFields in
                 globalFields = updatedFields
-                syncGlobalFieldsToImages() // 同步所有图片的字段
-                
-                // 更新当前选中图片的字段
+                syncGlobalFieldsToImages()
                 if let selectedIndex = screenList.firstIndex(where: { $0.id == selectedImage?.id }) {
                     selectedImage = screenList[selectedIndex]
                 }
             }
         }
-
+        .preferredColorScheme(.light)
         .background(Color.white)
         .edgesIgnoringSafeArea(.horizontal)
         .onAppear {
-            // 加载图片列表
             screenList = loadScreenListFromFileSystem()
-            globalFields = loadGlobalFieldsFromFileSystem() // 加载全局字段
+            globalFields = loadGlobalFieldsFromFileSystem()
             
-            // 如果 screenList 不为空，默认选择第一项
             if !screenList.isEmpty {
                 selectedImage = screenList[0]
             }
@@ -416,9 +523,9 @@ struct ContentView: View {
             // 确保图片字段与全局字段一致
             let updatedFields = globalFields.map { globalField in
                 if let existingField = screenList[index].fields.first(where: { $0.key == globalField.key }) {
-                    return FieldInfo(title: globalField.title, value: existingField.value, key: globalField.key)
+                    return FieldInfo(title: globalField.title, value: existingField.value, key: globalField.key, type: globalField.type)
                 } else {
-                    return FieldInfo(title: globalField.title, value: "", key: globalField.key)
+                    return FieldInfo(title: globalField.title, value: "", key: globalField.key, type: globalField.type)
                 }
             }
             screenList[index].fields = updatedFields
@@ -432,10 +539,25 @@ struct ContentView: View {
             let jsonData = try Data(contentsOf: fileURL)
             let fields = try JSONDecoder().decode([FieldInfo].self, from: jsonData)
             print("成功加载 globalFields：\(fields.count) 项")
+            
+            // 如果字段为空，添加默认字段
+            if fields.isEmpty {
+                return [
+                    FieldInfo(title: "景别", value: "", key: UUID().uuidString, type: .shotType),
+                    FieldInfo(title: "运镜", value: "", key: UUID().uuidString, type: .cameraMovement),
+                    FieldInfo(title: "镜头分析", value: "", key: UUID().uuidString, type: .text)
+                ]
+            }
+            
             return fields
         } catch {
             print("加载 globalFields 失败：\(error.localizedDescription)")
-            return []
+            // 如果文件不存在或加载失败，返回默认字段
+            return [
+                FieldInfo(title: "景别", value: "", key: UUID().uuidString, type: .shotType),
+                FieldInfo(title: "运镜", value: "", key: UUID().uuidString, type: .cameraMovement),
+                FieldInfo(title: "镜头分析", value: "", key: UUID().uuidString, type: .text)
+            ]
         }
     }
 
@@ -492,7 +614,7 @@ struct ContentView: View {
                     lensNumber: maxLensNumber + 1,
                     timestamp: formattedTime,
                     fields: globalFields.map { globalField in
-                        FieldInfo(title: globalField.title, value: "", key: globalField.key)
+                        FieldInfo(title: globalField.title, value: "", key: globalField.key, type: globalField.type)
                     }
                 )
                 
@@ -579,7 +701,7 @@ struct ContentView: View {
                 lensNumber: maxLensNumber + 1,
                 timestamp: "00:00:00",
                 fields: globalFields.map { globalField in
-                    FieldInfo(title: globalField.title, value: "", key: globalField.key)
+                    FieldInfo(title: globalField.title, value: "", key: globalField.key, type: globalField.type)
                 }
             )
             
@@ -659,6 +781,116 @@ struct ContentView: View {
         // 更新当前显示的镜号
         currentSeq = adjustedNumber
     }
+    
+    @ViewBuilder
+    func fieldInputView(for field: FieldInfo, index: Int) -> some View {
+        VStack(alignment: .leading) {
+            Text(field.title)
+                .font(.subheadline)
+            
+            switch field.type {
+            case .shotType:
+                Menu {
+                    Picker("", selection: Binding(
+                        get: { selectedImage?.fields[index].value ?? "" },
+                        set: { newValue in
+                            selectedImage?.fields[index].value = newValue
+                            saveChanges()
+                        }
+                    )) {
+                        Text("请选择").tag("")
+                        ForEach(FieldInfo.shotTypeOptions, id: \.self) { option in
+                            Text(option).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                } label: {
+                    HStack {
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? "请选择" : selectedImage?.fields[index].value ?? "")
+                            .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .foregroundColor(.gray)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+                
+            case .cameraMovement:
+                Menu {
+                    Picker("", selection: Binding(
+                        get: { selectedImage?.fields[index].value ?? "" },
+                        set: { newValue in
+                            selectedImage?.fields[index].value = newValue
+                            saveChanges()
+                        }
+                    )) {
+                        Text("请选择").tag("")
+                        ForEach(FieldInfo.cameraMovementOptions, id: \.self) { option in
+                            Text(option).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                } label: {
+                    HStack {
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? "请选择" : selectedImage?.fields[index].value ?? "")
+                            .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .foregroundColor(.gray)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+                
+            case .text:
+                TextField("请输入内容", text: Binding(
+                    get: { selectedImage?.fields[index].value ?? "" },
+                    set: { newValue in
+                        selectedImage?.fields[index].value = newValue
+                        saveChanges()
+                    }
+                ))
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        HStack(spacing: 8) {  // 使用 HStack 来更好地控制布局
+                            TextField("请输入内容", text: Binding(
+                                get: { selectedImage?.fields[index].value ?? "" },
+                                set: { newValue in
+                                    selectedImage?.fields[index].value = newValue
+                                    saveChanges()
+                                }
+                            ))
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .frame(maxWidth: .infinity)  // 让输入框占据 HStack 中的剩余空间
+                            
+                            Button("完成") {
+                                // 先让当前输入框失去焦点
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
+                                                             to: nil, 
+                                                             from: nil, 
+                                                             for: nil)
+                                
+                                // 短暂延迟后再次确保键盘收起
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
+                                                                 to: nil, 
+                                                                 from: nil, 
+                                                                 for: nil)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)  // 让 HStack 占据工具栏的所有宽度
+                    }
+                }
+            }
+        }
+    }
 }
 
 
@@ -668,7 +900,7 @@ func getDocumentsDirectory() -> URL {
 }
 
 @ViewBuilder
-private func screenListItemView(for currentImage: CurrentImage, geometry: GeometryProxy, onTap: @escaping (CurrentImage) -> Void) -> some View {
+private func screenListItemView(for currentImage: CurrentImage, geometry: GeometryProxy, selectedImage: CurrentImage?, onTap: @escaping (CurrentImage) -> Void) -> some View {
     if let uiImage = UIImage(data: currentImage.image) {
         Button(action: {
             onTap(currentImage)
@@ -679,15 +911,36 @@ private func screenListItemView(for currentImage: CurrentImage, geometry: Geomet
                 .frame(width: geometry.size.width * 0.4 - 20, height: 80)
                 .cornerRadius(8)
                 .shadow(radius: 2)
+                .padding(3)
                 .overlay(
-                    Text("\(currentImage.lensNumber)")
-                        .font(.caption)
-                        .foregroundColor(.white)
-                        .padding(5)
-                        .background(Color.black)
-                        .clipShape(Circle())
-                        .padding(.leading, 4),
-                    alignment: .topLeading
+                    HStack {
+                        // 镜号显示（左上角）
+                        Text("\(currentImage.lensNumber)")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .padding(5)
+                            .background(Color.black)
+                            .clipShape(Circle())
+                            .padding(.leading, 7)  // 调整左边距以适应新的内边距
+                        
+                        Spacer()
+                        
+                        // 时间戳显示（右上角）
+                        Text(currentImage.timestamp)
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.8))
+                            .cornerRadius(4)
+                            .padding(.trailing, 7)  // 调整右边距以适应新的内边距
+                    }
+                    .padding(.top, 7),  // 调整顶部边距以适应新的内边距
+                    alignment: .top
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(hex: "4784e1"), lineWidth: selectedImage?.id == currentImage.id ? 2 : 0)
                 )
         }
     } else {
@@ -699,14 +952,42 @@ private func screenListItemView(for currentImage: CurrentImage, geometry: Geomet
     }
 }
 
+// 添加用于解析十六进制颜色的扩展
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
 
 struct PhotoPicker: UIViewControllerRepresentable {
     @Binding var videoURL: URL?
+    @Binding var isLoadingVideo: Bool
+    @Binding var exportProgress: Float
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
-        config.filter = .videos // 仅显示视频
-        config.selectionLimit = 1 // 限制为单个视频
+        config.filter = .videos
+        config.selectionLimit = 1
         
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = context.coordinator
@@ -716,42 +997,153 @@ struct PhotoPicker: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
     
     func makeCoordinator() -> Coordinator {
-        return Coordinator(videoURL: $videoURL)
+        return Coordinator(videoURL: $videoURL, isLoadingVideo: $isLoadingVideo, exportProgress: $exportProgress)
     }
     
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
         @Binding var videoURL: URL?
+        @Binding var isLoadingVideo: Bool
+        @Binding var exportProgress: Float
         
-        init(videoURL: Binding<URL?>) {
+        init(videoURL: Binding<URL?>, isLoadingVideo: Binding<Bool>, exportProgress: Binding<Float>) {
             _videoURL = videoURL
+            _isLoadingVideo = isLoadingVideo
+            _exportProgress = exportProgress
         }
         
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            print("进入 picker 方法")
             picker.dismiss(animated: true)
             
-            guard let result = results.first,
-                  result.itemProvider.hasItemConformingToTypeIdentifier("public.movie") else {
+            guard let result = results.first else {
+                print("未选择视频")
                 videoURL = nil
                 return
             }
             
-            result.itemProvider.loadDataRepresentation(forTypeIdentifier: "public.movie") { data, error in
-                DispatchQueue.main.async {
-                    if let data = data {
-                        // 创建临时文件
-                        let temporaryDirectoryURL = FileManager.default.temporaryDirectory
-                        let tempVideoURL = temporaryDirectoryURL.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-                        
-                        do {
-                            try data.write(to: tempVideoURL)
-                            self.videoURL = tempVideoURL
-                        } catch {
-                            print("Error writing video data: \(error.localizedDescription)")
-                            self.videoURL = nil
-                        }
-                    } else {
-                        print("Error loading video: \(error?.localizedDescription ?? "Unknown error")")
-                        self.videoURL = nil
+            // 打印详细信息
+            print("选择的视频信息:")
+            print("- itemProvider: \(result.itemProvider)")
+            print("- assetIdentifier: \(String(describing: result.assetIdentifier))")
+            print("- supportedContentTypes: \(result.itemProvider.registeredTypeIdentifiers)")
+            print("- suggestedName: \(String(describing: result.itemProvider.suggestedName))")
+            
+            print("选择了视频，开始处理")
+            isLoadingVideo = true
+            self.exportProgress = 0
+            
+            // 检查文件类型
+            let supportedTypes = result.itemProvider.registeredTypeIdentifiers
+            if supportedTypes.contains("public.mpeg-4") {
+                // 处理 MP4 文件
+                handleMP4Video(result)
+            } else if supportedTypes.contains("com.apple.quicktime-movie") {
+                // 处理 MOV 文件
+                handleMOVVideo(result)
+            } else {
+                print("不支持的文件类型")
+                isLoadingVideo = false
+                self.exportProgress = 0
+            }
+        }
+
+        // 处理 MP4 文件 - 直接加载
+        func handleMP4Video(_ result: PHPickerResult) {
+            result.itemProvider.loadFileRepresentation(forTypeIdentifier: "public.mpeg-4") { [weak self] (url, error) in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("加载MP4文件时出错: \(error)")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
+                    }
+                    return
+                }
+                
+                guard let url = url else {
+                    print("无法获取MP4文件URL")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
+                    }
+                    return
+                }
+                
+                // 创建目标URL
+                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let destinationURL = documentsPath.appendingPathComponent(url.lastPathComponent)
+                
+                do {
+                    // 如果目标位置已存在文件，先删除
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    }
+                    
+                    // 复制文件到应用沙盒
+                    try FileManager.default.copyItem(at: url, to: destinationURL)
+                    
+                    DispatchQueue.main.async {
+                        self.videoURL = destinationURL
+                        self.isLoadingVideo = false
+                        self.exportProgress = 1.0
+                    }
+                } catch {
+                    print("处理MP4文件时出错: \(error)")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
+                    }
+                }
+            }
+        }
+
+        // 处理 MOV 文件 - 需要转码
+        func handleMOVVideo(_ result: PHPickerResult) {
+            result.itemProvider.loadFileRepresentation(forTypeIdentifier: "com.apple.quicktime-movie") { [weak self] (url, error) in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("加载MOV文件时出错: \(error)")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
+                    }
+                    return
+                }
+                
+                guard let url = url else {
+                    print("无法获取MOV文件URL")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
+                    }
+                    return
+                }
+                
+                // 创建目标URL
+                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let destinationURL = documentsPath.appendingPathComponent(url.lastPathComponent)
+                
+                do {
+                    // 如果目标位置已存在文件，先删除
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    }
+                    
+                    // 复制文件到应用沙盒
+                    try FileManager.default.copyItem(at: url, to: destinationURL)
+                    
+                    DispatchQueue.main.async {
+                        self.videoURL = destinationURL
+                        self.isLoadingVideo = false
+                        self.exportProgress = 1.0
+                    }
+                } catch {
+                    print("处理MOV文件时出错: \(error)")
+                    DispatchQueue.main.async {
+                        self.isLoadingVideo = false
+                        self.exportProgress = 0
                     }
                 }
             }
@@ -760,10 +1152,11 @@ struct PhotoPicker: UIViewControllerRepresentable {
 }
 
 struct SettingsSheet: View {
-    @Binding var globalFields: [FieldInfo] // 全局表单项
+    @Binding var globalFields: [FieldInfo]
     @Environment(\.presentationMode) var presentationMode
-    let onFieldsUpdated: ([FieldInfo]) -> Void // 回调：字段更新时触发
-
+    let onFieldsUpdated: ([FieldInfo]) -> Void
+    @State private var showingAddFieldSheet = false
+    
     var body: some View {
         NavigationView {
             VStack {
@@ -773,12 +1166,13 @@ struct SettingsSheet: View {
                         .padding(.leading)
                     Spacer()
                     Button("保存") {
-                        onFieldsUpdated(globalFields) // 回调更新字段
-                        saveGlobalFieldsToFileSystem(globalFields) // 保存到本地
+                        onFieldsUpdated(globalFields)
+                        saveGlobalFieldsToFileSystem(globalFields)
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         presentationMode.wrappedValue.dismiss()
                     }
-                    .padding()
+                    .padding([.leading, .trailing], 16)
+                    .padding([.top, .bottom], 10)
                     .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(8)
@@ -788,33 +1182,50 @@ struct SettingsSheet: View {
 
                 List {
                     ForEach(Array(globalFields.enumerated()), id: \.offset) { index, field in
-                        HStack {
+                        HStack(alignment: .center, spacing: 12) {
+                            // 左侧拖拽图标
                             Image(systemName: "line.horizontal.3")
                                 .foregroundColor(.gray)
-                            TextField("表单标题", text: Binding(
-                                get: { globalFields[index].title },
-                                set: { newValue in
-                                    globalFields[index].title = newValue
+                                .font(.system(size: 14))
+                                .frame(width: 20)
+                            
+                            // 右侧内容
+                            VStack(spacing: 8) {
+                                // 上方的类型和删除按钮
+                                HStack {
+                                    Text(field.type.rawValue)
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    Spacer()
+                                    Button(action: {
+                                        deleteField(at: IndexSet(integer: index))
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .foregroundColor(.red)
+                                            .font(.system(size: 12))
+                                            .frame(width: 16)
+                                    }
                                 }
-                            ))
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                deleteField(at: IndexSet(integer: index))
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
+                                
+                                // 下方的输入框
+                                TextField("表单标题", text: Binding(
+                                    get: { globalFields[index].title },
+                                    set: { newValue in
+                                        globalFields[index].title = newValue
+                                    }
+                                ))
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
                             }
                         }
-                        .padding(.vertical, 5)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 4)
+                        .background(Color.white)
                     }
                     .onMove(perform: moveField)
                 }
                 .listStyle(PlainListStyle())
 
-                Button(action: addNewField) {
+                Button(action: { showingAddFieldSheet = true }) {
                     HStack {
                         Image(systemName: "plus")
                         Text("添加")
@@ -826,6 +1237,55 @@ struct SettingsSheet: View {
                 }
                 .padding()
             }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    TextField("表单标题", text: Binding(
+                        get: { 
+                            // 获取当前正在编辑的字段的标题
+                            if let focusedField = globalFields.first(where: { $0.title == "" }) {
+                                return focusedField.title
+                            }
+                            return ""
+                        },
+                        set: { newValue in
+                            // 更新当前正在编辑的字段的标题
+                            if let index = globalFields.firstIndex(where: { $0.title == "" }) {
+                                globalFields[index].title = newValue
+                            }
+                        }
+                    ))
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(minWidth: 0, maxWidth: .infinity)  // 确保输入框占据所有可用空间
+                    
+                    Button("完成") {
+                        // 先让当前输入框失去焦点
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
+                                                     to: nil, 
+                                                     from: nil, 
+                                                     for: nil)
+                        
+                        // 短暂延迟后再次确保键盘收起
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
+                                                         to: nil, 
+                                                         from: nil, 
+                                                         for: nil)
+                        }
+                    }
+                    .padding(.leading, 8)
+                }
+            }
+        }
+        .actionSheet(isPresented: $showingAddFieldSheet) {
+            ActionSheet(
+                title: Text("选择字段类型"),
+                buttons: [
+                    .default(Text("景别")) { addNewField(type: .shotType) },
+                    .default(Text("运镜")) { addNewField(type: .cameraMovement) },
+                    .default(Text("自定义")) { addNewField(type: .text) },
+                    .cancel()
+                ]
+            )
         }
     }
     
@@ -857,8 +1317,15 @@ struct SettingsSheet: View {
     }
 
     // 新增表单项
-    private func addNewField() {
-        let newField = FieldInfo(title: "新表单项", value: "", key: UUID().uuidString)
+    private func addNewField(type: FieldType) {
+        let title: String
+        switch type {
+        case .shotType: title = "景别"
+        case .cameraMovement: title = "运镜"
+        case .text: title = "新字段"
+        }
+        
+        let newField = FieldInfo(title: title, value: "", key: UUID().uuidString, type: type)
         globalFields.append(newField)
     }
     
@@ -871,5 +1338,6 @@ struct SettingsSheet: View {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+            .environmentObject(LocalizationManager.shared)
     }
 }

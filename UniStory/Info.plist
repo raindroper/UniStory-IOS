@@ -4,5 +4,14 @@
 <dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>我们需要访问您的相册已加载视频文件</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh_CN</string>
+		<string>en</string>
+	</array>
 </dict>
 </plist>
