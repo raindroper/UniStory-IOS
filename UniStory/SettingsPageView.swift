@@ -21,7 +21,10 @@ struct SettingsPageView: View {
             
             // 反馈建议
             Button(action: {
-                // 处理反馈建议
+                // 打开反馈建议的链接
+                if let url = URL(string: "https://www.unistory.cn/#connect-us") {
+                    UIApplication.shared.open(url)
+                }
             }) {
                 HStack {
                     Text(localization.localizedString("feedback"))
@@ -34,7 +37,10 @@ struct SettingsPageView: View {
             
             // 官方网站
             Button(action: {
-                // 处理官方网站
+                // 打开官方网站的链接
+                if let url = URL(string: "https://www.unistory.cn/") {
+                    UIApplication.shared.open(url)
+                }
             }) {
                 HStack {
                     Text(localization.localizedString("officialWebsite"))

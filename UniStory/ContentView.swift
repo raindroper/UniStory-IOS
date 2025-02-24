@@ -74,6 +74,13 @@ struct ContentView: View {
     @State private var isSettingsActive = false
     @State private var isLanguageActive = false
     
+    @State private var isExportActive = false  // 新增状态变量
+    
+    @State private var selectedFieldIndex: Int = 0
+    @State private var focusedFieldIndex: Int? // 添加此行以定义 focusedFieldIndex
+    
+    @FocusState private var isInputFocused: Bool // 添加此行
+    
     init() {
         // 设置音频会话，允许在静音模式下播放声音
         do {
@@ -119,7 +126,7 @@ struct ContentView: View {
             
             // 右侧按钮
             Button(action: {
-                exportToExcel()
+                isExportActive = true  // 设置状态变量为 true
             }) {
                 Text("导出")
                     .font(.system(size: 16))
@@ -152,6 +159,8 @@ struct ContentView: View {
                             }
                         )
                     }
+                    // 在 VStack 的底部添加空白视图，确保内容可以完全滚动
+                    Color.clear.frame(height: 80)  // 添加与底部操作栏等高的空白区域
                 }
                 .padding()
             }
@@ -213,13 +222,14 @@ struct ContentView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .padding([.leading, .trailing], 13)
             .padding([.top, .bottom], 10)
+            .padding(.bottom, 80) // 添加底部的 padding，留出空间给操作栏
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     var body: some View {
-        NavigationView {  // 将 NavigationView 移到最外层
-            ZStack {
+        NavigationView {
+            ZStack(alignment: .bottom) {
                 // 主要内容
                 GeometryReader { geometry in
                     VStack(spacing: 0) {
@@ -247,7 +257,7 @@ struct ContentView: View {
                                 .frame(width: geometry.size.width, height: geometry.size.width * 9 / 16)
                                 .background(Color.black.opacity(0.1))
                         }
-                        
+
                         // 主要内容视图
                         mainContentView(geometry)
                     }
@@ -363,6 +373,118 @@ struct ContentView: View {
                 NavigationLink(destination: LanguageSelectionView(), isActive: $isLanguageActive) {
                     EmptyView()
                 }
+                NavigationLink(destination: ExportPageView(screenList: screenList, globalFields: globalFields), isActive: $isExportActive) {
+                    EmptyView()
+                }
+                
+                // 添加工具栏
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        HStack {
+                            if let index = focusedFieldIndex {
+                                TextField("请输入内容", text: Binding(
+                                    get: {
+                                        return self.selectedImage?.fields[index].value ?? ""
+                                    },
+                                    set: { newValue in
+                                        if var image = self.selectedImage {
+                                            image.fields[index].value = newValue
+                                            self.selectedImage = image  // 重新赋值以更新状态
+                                            saveChanges()
+                                        }
+                                    }
+                                ))
+                                .focused($isInputFocused)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .frame(minWidth: 0, maxWidth: 300)
+                                .background(Color.yellow) // 添加背景颜色以调试
+                                .onTapGesture {
+                                    isInputFocused = true // 设置焦点
+                                }
+                                .onSubmit {
+                                    focusedFieldIndex = nil  // 当用户完成输入时清除聚焦状态
+                                }
+                            }
+                            
+                            Button("完成") {
+                                hideKeyboard()
+                            }
+                        }
+                        .background(Color.red) // 添加背景颜色以调试
+                    }
+                }
+
+                
+                // 底部操作栏
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        if let screenshotImage = screenshotImage {
+                            Image(uiImage: screenshotImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 200)
+                                .padding()
+                        } else {
+                            Text("请先截图")
+                                .foregroundColor(.gray)
+                                .frame(width: 100, height: 60)
+                                .background(Color.black.opacity(0.1))
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("时间: \(formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1)))")
+                            HStack(spacing: 4) {
+                                Text("镜号: \(currentSeq)")
+                                Button(action: {
+                                    if let tempImage = tempImageInfo {
+                                        tempScreenForLensChange = tempImage
+                                        let maxNumber = screenList.count + 1
+                                        newLensNumber = "\(maxNumber)"
+                                        showLensNumberInput = true
+                                    }
+                                }) {
+                                    Image(systemName: "pencil")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: takeScreenshot) {
+                            VStack(spacing: 5) {
+                                Image(systemName: "camera")
+                                    .font(.system(size: 20))
+                                Text("截图")
+                                    .font(.caption)
+                            }
+                            .frame(width: 48, height: 55)
+                            .foregroundColor(.white)
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                        }
+                        Button(action: insertScreen) {
+                            VStack(spacing: 5) {
+                                Image(systemName: "plus.square")
+                                    .font(.system(size: 20))
+                                Text("插入")
+                                    .font(.caption)
+                            }
+                            .frame(width: 48, height: 55)
+                            .foregroundColor(.blue)
+                            .background(Color.blue.opacity(0.1))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            )
+                            .cornerRadius(10)
+                        }
+                    }
+                    .padding([.leading, .trailing])
+                    .frame(height: 80)
+                    .background(Color.white)
+                }
+                .edgesIgnoringSafeArea(.all)
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -452,7 +574,6 @@ struct ContentView: View {
             // 填充分镜图
             cell = sheet.AddCell(XCoords(row: row, col: 3))
             if let image = UIImage(data: screen.image) {
-//                let resizedImage = resizeImage(image, to: CGSize(width: 200, height: 150)) // 调整图片大小
                 let imageCellValue: XImageCell = XImageCell(key: XImages.append(with: image)!, size: CGSize(width: 200, height: 150))
                 cell.value = .icon(imageCellValue)
             }
@@ -848,48 +969,37 @@ struct ContentView: View {
                 }
                 
             case .text:
-                TextField("请输入内容", text: Binding(
-                    get: { selectedImage?.fields[index].value ?? "" },
-                    set: { newValue in
-                        selectedImage?.fields[index].value = newValue
-                        saveChanges()
-                    }
-                ))
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        HStack(spacing: 8) {  // 使用 HStack 来更好地控制布局
-                            TextField("请输入内容", text: Binding(
-                                get: { selectedImage?.fields[index].value ?? "" },
-                                set: { newValue in
-                                    selectedImage?.fields[index].value = newValue
-                                    saveChanges()
-                                }
-                            ))
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .frame(maxWidth: .infinity)  // 让输入框占据 HStack 中的剩余空间
-                            
-                            Button("完成") {
-                                // 先让当前输入框失去焦点
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
-                                                             to: nil, 
-                                                             from: nil, 
-                                                             for: nil)
-                                
-                                // 短暂延迟后再次确保键盘收起
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
-                                                                 to: nil, 
-                                                                 from: nil, 
-                                                                 for: nil)
-                                }
-                            }
+                GeometryReader { geometry in
+                    TextField("请输入内容", text: Binding(
+                        get: { selectedImage?.fields[index].value ?? "" },
+                        set: { newValue in
+                            selectedImage?.fields[index].value = newValue
+                            saveChanges()
                         }
-                        .frame(maxWidth: .infinity)  // 让 HStack 占据工具栏的所有宽度
+                    ))
+                    .focused($isInputFocused)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: geometry.size.width) // 确保 TextField 的宽度有效
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            isInputFocused = true // 设置焦点
+                            print("\(index)")
+                            focusedFieldIndex = index
+                            print("\(focusedFieldIndex)")
+                        }
+                    )
+                    .onSubmit {
+                        focusedFieldIndex = nil  // 当用户完成输入时清除聚焦状态
                     }
                 }
+                .frame(height: 44) // 设置一个有效的高度
             }
         }
+    }
+
+    // 添加一个辅助函数来隐藏键盘
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
