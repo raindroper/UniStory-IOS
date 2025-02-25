@@ -75,7 +75,8 @@ class LocalizationManager: ObservableObject {
             "insert": "插入",
             "checkUpdate": "检查更新",
             "feedback": "反馈建议",
-            "officialWebsite": "官方网站"
+            "officialWebsite": "官方网站",
+            "captureFirst": "请先截图"
         ],
         "English": [
             "loadVideo": "Load Video",

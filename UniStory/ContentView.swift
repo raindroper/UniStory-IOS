@@ -39,6 +39,64 @@ struct ScreenItem {
     var timestamp: String
 }
 
+struct ScreenListItemView: View {
+    let currentImage: CurrentImage
+    let geometry: GeometryProxy
+    let selectedImage: CurrentImage?
+    let onTap: (CurrentImage) -> Void
+    @EnvironmentObject private var localization: LocalizationManager
+    
+    var body: some View {
+        if let uiImage = UIImage(data: currentImage.image) {
+            Button(action: {
+                onTap(currentImage)
+            }) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: geometry.size.width * 0.4 - 20, height: 80)
+                    .cornerRadius(8)
+                    .shadow(radius: 2)
+                    .padding(3)
+                    .overlay(
+                        HStack {
+                            Text("\(currentImage.lensNumber)")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .padding(5)
+                                .background(Color.black)
+                                .clipShape(Circle())
+                                .padding(.leading, 7)
+                            
+                            Spacer()
+                            
+                            Text(currentImage.timestamp)
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.black.opacity(0.8))
+                                .cornerRadius(4)
+                                .padding(.trailing, 7)
+                        }
+                        .padding(.top, 7),
+                        alignment: .top
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(hex: "4784e1"), lineWidth: selectedImage?.id == currentImage.id ? 2 : 0)
+                    )
+            }
+        } else {
+            Text(localization.localizedString("imageLoadFailed"))
+                .foregroundColor(.red)
+                .frame(width: geometry.size.width * 0.4 - 20, height: 80)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var videoURL: URL?
     @State private var showPicker = false
@@ -67,8 +125,6 @@ struct ContentView: View {
     @State private var isLoadingVideo = false
     @State private var exportProgress: Float = 0
     
-    @State private var isDrawerOpen = false
-    
     @EnvironmentObject private var localization: LocalizationManager
     
     @State private var isSettingsActive = false
@@ -96,11 +152,10 @@ struct ContentView: View {
         HStack {
             // 左侧按钮
             HStack(spacing: 0) {
-                Button(action: {
-                    withAnimation {
-                        isDrawerOpen.toggle()
-                    }
-                }) {
+                NavigationLink(destination: MenuPageView(
+                    isSettingsActive: $isSettingsActive,
+                    isLanguageActive: $isLanguageActive
+                )) {
                     Image(systemName: "line.horizontal.3")
                         .font(.system(size: 24))
                         .foregroundColor(.black)
@@ -110,7 +165,7 @@ struct ContentView: View {
                 Button(action: {
                     showPicker = true
                 }) {
-                    Text("加载本地视频")
+                    Text(localization.localizedString("selectVideo"))
                         .font(.system(size: 16))
                         .foregroundColor(.blue)
                         .padding(10)
@@ -128,7 +183,7 @@ struct ContentView: View {
             Button(action: {
                 isExportActive = true  // 设置状态变量为 true
             }) {
-                Text("导出")
+                Text(localization.localizedString("export"))
                     .font(.system(size: 16))
                     .foregroundColor(.white)
                     .padding([.leading, .trailing], 16)
@@ -150,8 +205,8 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(screenList) { currentImage in
-                        screenListItemView(
-                            for: currentImage,
+                        ScreenListItemView(
+                            currentImage: currentImage,
                             geometry: geometry,
                             selectedImage: selectedImage,
                             onTap: { selected in
@@ -177,7 +232,9 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let selected = selectedImage {
                     HStack(spacing: 0) {
-                        Text("镜号：\(selected.lensNumber)")
+                        Text(String(format: "%@: %d", 
+                            localization.localizedString("lensNumber"), 
+                            selected.lensNumber))
                         Spacer()
                         Button(action: {
                             isSettingsSheetPresented = true
@@ -194,12 +251,14 @@ struct ContentView: View {
                         }
                     }
                     HStack(spacing: 0) {
-                        Text("时间：\(selected.timestamp)")
+                        Text(String(format: "%@: %@", 
+                            localization.localizedString("time"), 
+                            selected.timestamp))
                         Spacer()
                         Button(action: {
                             jumpVideoToTime(time: selected.timestamp)
                         }) {
-                            Text("跳转到此时间")
+                            Text(localization.localizedString("jumpToTime"))
                                 .font(.caption)
                                 .padding(6)
                                 .background(Color.blue.opacity(0.1))
@@ -263,109 +322,6 @@ struct ContentView: View {
                     }
                 }
                 
-                // 抽屉菜单
-                if isDrawerOpen {
-                    ZStack {
-                        // 遮罩层
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation {
-                                    isDrawerOpen = false
-                                }
-                            }
-                        
-                        // 抽屉内容
-                        HStack(alignment: .top, spacing: 0) {
-                            VStack(spacing: 0) {
-                                // 添加安全区域的 padding
-                                Color(red: 0.98, green: 0.98, blue: 0.98)
-                                    .frame(height: 0)
-                                    .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
-                                
-                                // 第一组按钮
-                                VStack(spacing: 0) {
-                                    Button(action: {
-                                        // 处理导入操作
-                                        withAnimation {
-                                            isDrawerOpen = false
-                                        }
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "square.and.arrow.down")
-                                                .foregroundColor(.black)
-                                                .frame(width: 20)
-                                            Text(localization.localizedString("import"))
-                                                .foregroundColor(.black)
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 12)
-                                    }
-                                }
-                                .padding(.horizontal, 25)
-                                .background(Color(red: 1, green: 1, blue: 1))
-                                .cornerRadius(10)
-                                .padding(.horizontal, 25)
-                                .padding(.top, 20)
-                                
-                                // 第二组按钮
-                                VStack(spacing: 0) {
-                                    Button(action: {
-                                        isSettingsActive = true
-                                        withAnimation {
-                                            isDrawerOpen = false
-                                        }
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "gearshape")
-                                                .foregroundColor(.black)
-                                                .frame(width: 20)
-                                            Text(localization.localizedString("settings"))
-                                                .foregroundColor(.black)
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .foregroundColor(.gray)
-                                                .font(.system(size: 14))
-                                        }
-                                        .padding(.vertical, 12)
-                                    }
-                                    
-                                    Button(action: {
-                                        isLanguageActive = true
-                                        withAnimation {
-                                            isDrawerOpen = false
-                                        }
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "globe")
-                                                .foregroundColor(.black)
-                                                .frame(width: 20)
-                                            Text(localization.localizedString("language"))
-                                                .foregroundColor(.black)
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .foregroundColor(.gray)
-                                                .font(.system(size: 14))
-                                        }
-                                        .padding(.vertical, 12)
-                                    }
-                                }
-                                .padding(.horizontal, 25)
-                                .background(Color(red: 1, green: 1, blue: 1))
-                                .cornerRadius(10)
-                                .padding(.horizontal, 25)
-                                .padding(.top, 19)
-                                
-                                Spacer()
-                            }
-                            .frame(width: 311)
-                            .background(Color(red: 0.98, green: 0.98, blue: 0.98))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .transition(.move(edge: .leading))
-                }
-                
                 // 添加导航链接
                 NavigationLink(destination: SettingsPageView(), isActive: $isSettingsActive) {
                     EmptyView()
@@ -382,7 +338,7 @@ struct ContentView: View {
                     ToolbarItemGroup(placement: .keyboard) {
                         HStack {
                             if let index = focusedFieldIndex {
-                                TextField("请输入内容", text: Binding(
+                                TextField(localization.localizedString("pleaseInput"), text: Binding(
                                     get: {
                                         return self.selectedImage?.fields[index].value ?? ""
                                     },
@@ -406,11 +362,12 @@ struct ContentView: View {
                                 }
                             }
                             
-                            Button("完成") {
+                            Button(action: {
                                 hideKeyboard()
+                            }) {
+                                Text(localization.localizedString("done"))
                             }
                         }
-                        .background(Color.red) // 添加背景颜色以调试
                     }
                 }
 
@@ -425,16 +382,20 @@ struct ContentView: View {
                                 .frame(height: 200)
                                 .padding()
                         } else {
-                            Text("请先截图")
+                            Text(localization.localizedString("captureFirst"))
                                 .foregroundColor(.gray)
                                 .frame(width: 100, height: 60)
                                 .background(Color.black.opacity(0.1))
                         }
                         
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("时间: \(formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1)))")
+                            Text(String(format: "%@: %@", 
+                                localization.localizedString("time"), 
+                                formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1))))
                             HStack(spacing: 4) {
-                                Text("镜号: \(currentSeq)")
+                                Text(String(format: "%@: %d", 
+                                    localization.localizedString("lensNumber"), 
+                                    currentSeq))
                                 Button(action: {
                                     if let tempImage = tempImageInfo {
                                         tempScreenForLensChange = tempImage
@@ -455,7 +416,7 @@ struct ContentView: View {
                             VStack(spacing: 5) {
                                 Image(systemName: "camera")
                                     .font(.system(size: 20))
-                                Text("截图")
+                                Text(localization.localizedString("screenshot"))
                                     .font(.caption)
                             }
                             .frame(width: 48, height: 55)
@@ -467,7 +428,7 @@ struct ContentView: View {
                             VStack(spacing: 5) {
                                 Image(systemName: "plus.square")
                                     .font(.system(size: 20))
-                                Text("插入")
+                                Text(localization.localizedString("insert"))
                                     .font(.caption)
                             }
                             .frame(width: 48, height: 55)
@@ -515,21 +476,21 @@ struct ContentView: View {
         }
         .alert(isPresented: $showDeleteConfirmation) {
             Alert(
-                title: Text("确认删除"),
-                message: Text("您确定要删除这张图片吗？"),
-                primaryButton: .destructive(Text("删除")) {
+                title: Text(localization.localizedString("confirmDelete")),
+                message: Text(localization.localizedString("deleteMessage")),
+                primaryButton: .destructive(Text(localization.localizedString("delete"))) {
                     deleteImage()
                 },
                 secondaryButton: .cancel()
             )
         }
-        .alert("修改镜号", isPresented: $showLensNumberInput) {
-            TextField("请输入新镜号", text: $newLensNumber)
+        .alert(localization.localizedString("modifyLensNumber"), isPresented: $showLensNumberInput) {
+            TextField(localization.localizedString("inputNewLensNumber"), text: $newLensNumber)
                 .keyboardType(.numberPad)
-            Button("取消", role: .cancel) {
+            Button(localization.localizedString("cancel"), role: .cancel) {
                 showLensNumberInput = false
             }
-            Button("确认") {
+            Button(localization.localizedString("confirm")) {
                 if let newNumber = Int(newLensNumber),
                    let tempImage = tempScreenForLensChange {
                     updateLensNumber(for: tempImage, to: newNumber)
@@ -537,7 +498,7 @@ struct ContentView: View {
                 showLensNumberInput = false
             }
         } message: {
-            Text("请输入1-\(screenList.count + 1)之间的数字")
+            Text(String(format: localization.localizedString("numberRange"), screenList.count + 1))
         }
     }
     
@@ -547,11 +508,11 @@ struct ContentView: View {
         
         // 添加标题行
         var cell = sheet.AddCell(XCoords(row: 1, col: 1))
-        cell.value = .text("镜号")
+        cell.value = .text(localization.localizedString("lensNumber"))
         cell = sheet.AddCell(XCoords(row: 1, col: 2))
-        cell.value = .text("时间")
+        cell.value = .text(localization.localizedString("time"))
         cell = sheet.AddCell(XCoords(row: 1, col: 3))
-        cell.value = .text("视频截图")
+        cell.value = .text(localization.localizedString("screenshot"))
         
         // 动态添加 globalFields 的列标题
         for (index, field) in globalFields.enumerated() {
@@ -919,7 +880,7 @@ struct ContentView: View {
                             saveChanges()
                         }
                     )) {
-                        Text("请选择").tag("")
+                        Text(localization.localizedString("pleaseSelect")).tag("")
                         ForEach(FieldInfo.shotTypeOptions, id: \.self) { option in
                             Text(option).tag(option)
                         }
@@ -927,7 +888,7 @@ struct ContentView: View {
                     .labelsHidden()
                 } label: {
                     HStack {
-                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? "请选择" : selectedImage?.fields[index].value ?? "")
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? localization.localizedString("pleaseSelect") : selectedImage?.fields[index].value ?? "")
                             .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
                         Spacer()
                         Image(systemName: "chevron.down")
@@ -948,7 +909,7 @@ struct ContentView: View {
                             saveChanges()
                         }
                     )) {
-                        Text("请选择").tag("")
+                        Text(localization.localizedString("pleaseSelect")).tag("")
                         ForEach(FieldInfo.cameraMovementOptions, id: \.self) { option in
                             Text(option).tag(option)
                         }
@@ -956,7 +917,7 @@ struct ContentView: View {
                     .labelsHidden()
                 } label: {
                     HStack {
-                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? "请选择" : selectedImage?.fields[index].value ?? "")
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? localization.localizedString("pleaseSelect") : selectedImage?.fields[index].value ?? "")
                             .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
                         Spacer()
                         Image(systemName: "chevron.down")
@@ -970,7 +931,7 @@ struct ContentView: View {
                 
             case .text:
                 GeometryReader { geometry in
-                    TextField("请输入内容", text: Binding(
+                    TextField(localization.localizedString("pleaseInput"), text: Binding(
                         get: { selectedImage?.fields[index].value ?? "" },
                         set: { newValue in
                             selectedImage?.fields[index].value = newValue
@@ -1010,7 +971,13 @@ func getDocumentsDirectory() -> URL {
 }
 
 @ViewBuilder
-private func screenListItemView(for currentImage: CurrentImage, geometry: GeometryProxy, selectedImage: CurrentImage?, onTap: @escaping (CurrentImage) -> Void) -> some View {
+private func screenListItemView(
+    for currentImage: CurrentImage, 
+    geometry: GeometryProxy, 
+    selectedImage: CurrentImage?, 
+    localization: LocalizationManager,
+    onTap: @escaping (CurrentImage) -> Void
+) -> some View {
     if let uiImage = UIImage(data: currentImage.image) {
         Button(action: {
             onTap(currentImage)
@@ -1054,7 +1021,7 @@ private func screenListItemView(for currentImage: CurrentImage, geometry: Geomet
                 )
         }
     } else {
-        Text("图片加载失败")
+        Text(localization.localizedString("imageLoadFailed"))
             .foregroundColor(.red)
             .frame(width: geometry.size.width * 0.4 - 20, height: 80)
             .background(Color.gray.opacity(0.1))
@@ -1264,6 +1231,7 @@ struct PhotoPicker: UIViewControllerRepresentable {
 struct SettingsSheet: View {
     @Binding var globalFields: [FieldInfo]
     @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject private var localization: LocalizationManager
     let onFieldsUpdated: ([FieldInfo]) -> Void
     @State private var showingAddFieldSheet = false
     
@@ -1271,11 +1239,11 @@ struct SettingsSheet: View {
         NavigationView {
             VStack {
                 HStack {
-                    Text("字段设置（拖动排序）")
+                    Text(localization.localizedString("fieldSettings"))
                         .font(.headline)
                         .padding(.leading)
                     Spacer()
-                    Button("保存") {
+                    Button(localization.localizedString("save")) {
                         onFieldsUpdated(globalFields)
                         saveGlobalFieldsToFileSystem(globalFields)
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -1338,7 +1306,7 @@ struct SettingsSheet: View {
                 Button(action: { showingAddFieldSheet = true }) {
                     HStack {
                         Image(systemName: "plus")
-                        Text("添加")
+                        Text(localization.localizedString("add"))
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
@@ -1349,7 +1317,7 @@ struct SettingsSheet: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
-                    TextField("表单标题", text: Binding(
+                    TextField(localization.localizedString("formTitle"), text: Binding(
                         get: { 
                             // 获取当前正在编辑的字段的标题
                             if let focusedField = globalFields.first(where: { $0.title == "" }) {
@@ -1367,7 +1335,7 @@ struct SettingsSheet: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .frame(minWidth: 0, maxWidth: .infinity)  // 确保输入框占据所有可用空间
                     
-                    Button("完成") {
+                    Button(localization.localizedString("done")) {
                         // 先让当前输入框失去焦点
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), 
                                                      to: nil, 
@@ -1388,11 +1356,17 @@ struct SettingsSheet: View {
         }
         .actionSheet(isPresented: $showingAddFieldSheet) {
             ActionSheet(
-                title: Text("选择字段类型"),
+                title: Text(localization.localizedString("selectFieldType")),
                 buttons: [
-                    .default(Text("景别")) { addNewField(type: .shotType) },
-                    .default(Text("运镜")) { addNewField(type: .cameraMovement) },
-                    .default(Text("自定义")) { addNewField(type: .text) },
+                    .default(Text(localization.localizedString("shotType"))) { 
+                        addNewField(.shotType) 
+                    },
+                    .default(Text(localization.localizedString("cameraMovement"))) { 
+                        addNewField(.cameraMovement) 
+                    },
+                    .default(Text(localization.localizedString("custom"))) { 
+                        addNewField(.text) 
+                    },
                     .cancel()
                 ]
             )
@@ -1426,22 +1400,21 @@ struct SettingsSheet: View {
         globalFields.remove(atOffsets: indexSet)
     }
 
-    // 新增表单项
-    private func addNewField(type: FieldType) {
-        let title: String
-        switch type {
-        case .shotType: title = "景别"
-        case .cameraMovement: title = "运镜"
-        case .text: title = "新字段"
-        }
-        
-        let newField = FieldInfo(title: title, value: "", key: UUID().uuidString, type: type)
-        globalFields.append(newField)
-    }
-    
     // 移动表单项
     private func moveField(from source: IndexSet, to destination: Int) {
         globalFields.move(fromOffsets: source, toOffset: destination)
+    }
+    
+    private func addNewField(_ type: FieldType) {
+        let newField = FieldInfo(
+            title: localization.localizedString(type == .shotType ? "shotType" : 
+                                              type == .cameraMovement ? "cameraMovement" : 
+                                              "custom"),
+            value: "",
+            key: UUID().uuidString,
+            type: type
+        )
+        globalFields.append(newField)
     }
 }
 
