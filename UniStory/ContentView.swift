@@ -97,6 +97,52 @@ struct ScreenListItemView: View {
     }
 }
 
+struct KeyboardToolbar: View {
+    @Binding var selectedImage: CurrentImage?
+    @Binding var focusedFieldIndex: Int?
+    @FocusState var isInputFocused: Bool
+    let saveChanges: () -> Void
+    @EnvironmentObject private var localization: LocalizationManager
+    
+    var body: some View {
+        HStack {
+            if let index = focusedFieldIndex {
+                TextField(localization.localizedString("pleaseInput"), 
+                    text: Binding(
+                        get: {
+                            selectedImage?.fields[index].value ?? ""
+                        },
+                        set: { newValue in
+                            if var image = selectedImage {
+                                image.fields[index].value = newValue
+                                selectedImage = image
+                                saveChanges()
+                            }
+                        }
+                    )
+                )
+                .focused($isInputFocused)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(minWidth: 0, maxWidth: 300)
+                .onAppear {
+                    isInputFocused = true
+                }
+                .onSubmit {
+                    isInputFocused = false
+                    focusedFieldIndex = nil
+                }
+            }
+            
+            Button(action: {
+                isInputFocused = false
+                focusedFieldIndex = nil
+            }) {
+                Text(localization.localizedString("done"))
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var videoURL: URL?
     @State private var showPicker = false
@@ -231,59 +277,67 @@ struct ContentView: View {
             )
             
             // 右侧详情视图
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let selected = selectedImage {
-                    HStack(spacing: 0) {
-                        Text(String(format: "%@: %d", 
-                            localization.localizedString("lensNumber"), 
-                            selected.lensNumber))
-                        Spacer()
-                        Button(action: {
-                            isSettingsSheetPresented = true
-                        }) {
-                            Image(systemName: "gearshape")
-                                .foregroundColor(.blue)
+                    // 头部信息（镜号和时间）
+                    VStack(spacing: 10) {
+                        HStack(spacing: 0) {
+                            Text(String(format: "%@: %d", 
+                                localization.localizedString("lensNumber"), 
+                                selected.lensNumber))
+                            Spacer()
+                            Button(action: {
+                                isSettingsSheetPresented = true
+                            }) {
+                                Image(systemName: "gearshape")
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(.trailing, 10)
+                            Button(action: {
+                                showDeleteConfirmation = true
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.blue)
+                            }
                         }
-                        .padding(.trailing, 10)
-                        Button(action: {
-                            showDeleteConfirmation = true
-                        }) {
-                            Image(systemName: "trash")
-                                .foregroundColor(.blue)
+                        HStack(spacing: 0) {
+                            Text(String(format: "%@: %@", 
+                                localization.localizedString("time"), 
+                                selected.timestamp))
+                            Spacer()
+                            Button(action: {
+                                jumpVideoToTime(time: selected.timestamp)
+                            }) {
+                                Text(localization.localizedString("jumpToTime"))
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(4)
+                            }
                         }
                     }
-                    HStack(spacing: 0) {
-                        Text(String(format: "%@: %@", 
-                            localization.localizedString("time"), 
-                            selected.timestamp))
-                        Spacer()
-                        Button(action: {
-                            jumpVideoToTime(time: selected.timestamp)
-                        }) {
-                            Text(localization.localizedString("jumpToTime"))
-                                .font(.caption)
-                                .padding(6)
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(4)
-                        }
-                    }
-                    .padding(.top)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
                     
-                    ScrollView {
-                        VStack(spacing: 10) {
+                    // 添加分隔线
+                    Divider()
+                        .padding(.vertical, 10)
+                    
+                    // 字段列表
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
                             ForEach(Array(selected.fields.enumerated()), id: \.offset) { index, field in
                                 fieldInputView(for: field, index: index)
                             }
                         }
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 90) // 为底部操作栏留出空间
                 }
             }
             .frame(width: geometry.size.width * 0.6 - 26)
             .background(Color.white)
-            .frame(maxHeight: .infinity, alignment: .top)
             .padding([.leading, .trailing], 13)
-            .padding([.top, .bottom], 10)
-            .padding(.bottom, 80) // 添加底部的 padding，留出空间给操作栏
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -418,38 +472,12 @@ struct ContentView: View {
                 // 添加工具栏
                 .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
-                        HStack {
-                            if let index = focusedFieldIndex {
-                                TextField(localization.localizedString("pleaseInput"), text: Binding(
-                                    get: {
-                                        return self.selectedImage?.fields[index].value ?? ""
-                                    },
-                                    set: { newValue in
-                                        if var image = self.selectedImage {
-                                            image.fields[index].value = newValue
-                                            self.selectedImage = image
-                                            saveChanges()
-                                        }
-                                    }
-                                ))
-                                .focused($isInputFocused)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .frame(minWidth: 0, maxWidth: 300)
-                                .background(Color.yellow)
-                                .onTapGesture {
-                                    isInputFocused = true
-                                }
-                                .onSubmit {
-                                    focusedFieldIndex = nil
-                                }
-                            }
-                            
-                            Button(action: {
-                                hideKeyboard()
-                            }) {
-                                Text(localization.localizedString("done"))
-                            }
-                        }
+                        KeyboardToolbar(
+                            selectedImage: $selectedImage,
+                            focusedFieldIndex: $focusedFieldIndex,
+                            isInputFocused: _isInputFocused,
+                            saveChanges: saveChanges
+                        )
                     }
                 }
             }
@@ -657,17 +685,19 @@ struct ContentView: View {
     }
 
     
-    func saveChanges() {
-        guard let selected = selectedImage else { return }
-
-        // 更新 `screenList` 中的对应图片
-        if let index = screenList.firstIndex(where: { $0.id == selected.id }) {
-            screenList[index] = selected
+    private func saveChanges() {
+        // 使用防抖处理，避免频繁保存
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let selected = self.selectedImage else { return }
+            
+            // 更新 screenList 中的对应图片
+            if let index = self.screenList.firstIndex(where: { $0.id == selected.id }) {
+                self.screenList[index] = selected
+            }
+            
+            // 保存到文件系统
+            self.saveScreenListToFileSystem(self.screenList)
         }
-
-        // 保存到文件系统
-        saveScreenListToFileSystem(screenList)
-        print("实时保存成功：\(selected.id)")
     }
     
     func takeScreenshot() {
@@ -878,10 +908,12 @@ struct ContentView: View {
     }
     
     @ViewBuilder
-    func fieldInputView(for field: FieldInfo, index: Int) -> some View {
-        VStack(alignment: .leading) {
+    private func fieldInputView(for field: FieldInfo, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(field.title)
                 .font(.subheadline)
+                .foregroundColor(.gray)
+                .padding(.top, 4)
             
             switch field.type {
             case .shotType:
@@ -889,8 +921,11 @@ struct ContentView: View {
                     Picker("", selection: Binding(
                         get: { selectedImage?.fields[index].value ?? "" },
                         set: { newValue in
-                            selectedImage?.fields[index].value = newValue
-                            saveChanges()
+                            if var image = selectedImage {
+                                image.fields[index].value = newValue
+                                selectedImage = image
+                                saveChanges()
+                            }
                         }
                     )) {
                         Text(localization.localizedString("pleaseSelect")).tag("")
@@ -901,25 +936,31 @@ struct ContentView: View {
                     .labelsHidden()
                 } label: {
                     HStack {
-                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? localization.localizedString("pleaseSelect") : selectedImage?.fields[index].value ?? "")
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? 
+                            localization.localizedString("pleaseSelect") : 
+                            selectedImage?.fields[index].value ?? "")
                             .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
                         Spacer()
                         Image(systemName: "chevron.down")
                             .foregroundColor(.gray)
                     }
-                    .padding(8)
+                    .padding(6)
                     .frame(maxWidth: .infinity)
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
                 }
+                .padding(.bottom, 4)
                 
             case .cameraMovement:
                 Menu {
                     Picker("", selection: Binding(
                         get: { selectedImage?.fields[index].value ?? "" },
                         set: { newValue in
-                            selectedImage?.fields[index].value = newValue
-                            saveChanges()
+                            if var image = selectedImage {
+                                image.fields[index].value = newValue
+                                selectedImage = image
+                                saveChanges()
+                            }
                         }
                     )) {
                         Text(localization.localizedString("pleaseSelect")).tag("")
@@ -930,45 +971,50 @@ struct ContentView: View {
                     .labelsHidden()
                 } label: {
                     HStack {
-                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? localization.localizedString("pleaseSelect") : selectedImage?.fields[index].value ?? "")
+                        Text(selectedImage?.fields[index].value.isEmpty ?? true ? 
+                            localization.localizedString("pleaseSelect") : 
+                            selectedImage?.fields[index].value ?? "")
                             .foregroundColor(selectedImage?.fields[index].value.isEmpty ?? true ? .gray : .black)
                         Spacer()
                         Image(systemName: "chevron.down")
                             .foregroundColor(.gray)
                     }
-                    .padding(8)
+                    .padding(6)
                     .frame(maxWidth: .infinity)
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
                 }
+                .padding(.bottom, 4)
                 
             case .text:
                 GeometryReader { geometry in
                     TextField(localization.localizedString("pleaseInput"), text: Binding(
                         get: { selectedImage?.fields[index].value ?? "" },
                         set: { newValue in
-                            selectedImage?.fields[index].value = newValue
-                            saveChanges()
+                            if var image = selectedImage {
+                                image.fields[index].value = newValue
+                                selectedImage = image
+                                saveChanges()
+                            }
                         }
                     ))
                     .focused($isInputFocused)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .frame(width: geometry.size.width) // 确保 TextField 的宽度有效
+                    .frame(width: geometry.size.width)
                     .simultaneousGesture(
                         TapGesture().onEnded {
-                            isInputFocused = true // 设置焦点
-                            print("\(index)")
                             focusedFieldIndex = index
-                            print("\(focusedFieldIndex)")
+                            isInputFocused = true
                         }
                     )
-                    .onSubmit {
-                        focusedFieldIndex = nil  // 当用户完成输入时清除聚焦状态
-                    }
                 }
-                .frame(height: 44) // 设置一个有效的高度
+                .frame(height: 36)
+                .padding(.bottom, 4)
             }
         }
+        .padding(.horizontal, 6)
+        .frame(minHeight: 65)
+        .background(Color.white)
     }
 
     // 添加一个辅助函数来隐藏键盘
