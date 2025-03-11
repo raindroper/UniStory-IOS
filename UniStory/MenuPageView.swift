@@ -74,5 +74,16 @@ struct MenuPageView: View {
         .background(Color(red: 0.98, green: 0.98, blue: 0.98))
         .navigationTitle(localization.localizedString("menu"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .navigationBarItems(leading: Button(action: {
+            presentationMode.wrappedValue.dismiss() // 返回上一个页面
+        }) {
+            HStack {
+                Image(systemName: "chevron.left") // 箭头图标
+                    .foregroundColor(.blue)
+                Text(localization.localizedString("back")) // 使用多语言的"返回"文本
+                    .foregroundColor(.blue)
+            }
+        })
     }
 } 

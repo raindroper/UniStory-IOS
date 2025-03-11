@@ -11,18 +11,32 @@ struct ExportPageView: View {
     
     var body: some View {
         VStack {
-            Text(localization.localizedString("export"))
-                .font(.largeTitle)
-                .padding()
+            HStack {
+                VStack {
+                    Image(systemName: "document") // 使用 document 图标
+                        .font(.largeTitle) // 放大图标
+                        .foregroundColor(.blue)
+                    Text(localization.localizedString("exportExcel")) // 修改为"导出Excel文件"
+                        .font(.subheadline) // 调整文本大小
+                        .fontWeight(.bold) // 加粗文本
+                        .foregroundColor(.black)
+                }
+            }
+            .padding()
             
             Button(action: {
                 exportToExcel() // 调用 exportToExcel 方法
             }) {
-                Text("开始导出")
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+                HStack {
+                    Image(systemName: "arrow.down.doc") // 导出图标
+                        .font(.title) // 放大导出图标
+                    Text(localization.localizedString("export")) // 修改为"导出"
+                        .font(.subheadline) // 调整文本大小
+                }
+                .padding(8) // 调整按钮的内边距
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
             }
             .padding()
             
@@ -30,6 +44,17 @@ struct ExportPageView: View {
         }
         .navigationTitle(localization.localizedString("export"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .navigationBarItems(leading: Button(action: {
+            presentationMode.wrappedValue.dismiss() // 返回上一个页面
+        }) {
+            HStack {
+                Image(systemName: "chevron.left") // 箭头图标
+                    .foregroundColor(.blue)
+                Text(localization.localizedString("back")) // 使用多语言的"返回"文本
+                    .foregroundColor(.blue)
+            }
+        })
     }
     
     func exportToExcel() {
@@ -38,11 +63,11 @@ struct ExportPageView: View {
         
         // 添加标题行
         var cell = sheet.AddCell(XCoords(row: 1, col: 1))
-        cell.value = .text("镜号")
+        cell.value = .text(localization.localizedString("lensNumber")) // 使用本地化字符串
         cell = sheet.AddCell(XCoords(row: 1, col: 2))
-        cell.value = .text("时间")
+        cell.value = .text(localization.localizedString("time")) // 使用本地化字符串
         cell = sheet.AddCell(XCoords(row: 1, col: 3))
-        cell.value = .text("视频截图")
+        cell.value = .text(localization.localizedString("screenshot")) // 使用本地化字符串
         
         // 动态添加 globalFields 的列标题
         for (index, field) in globalFields.enumerated() {

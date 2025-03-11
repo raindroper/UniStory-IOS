@@ -76,7 +76,10 @@ class LocalizationManager: ObservableObject {
             "checkUpdate": "检查更新",
             "feedback": "反馈建议",
             "officialWebsite": "官方网站",
-            "captureFirst": "请先截图"
+            "captureFirst": "请先截图",
+            "exportExcel": "导出Excel文件",
+            "menu": "菜单",
+            "back": "返回"
         ],
         "English": [
             "loadVideo": "Load Video",
@@ -132,7 +135,11 @@ class LocalizationManager: ObservableObject {
             "insert": "Insert",
             "checkUpdate": "Check Update",
             "feedback": "Feedback",
-            "officialWebsite": "Official Website"
+            "officialWebsite": "Official Website",
+            "captureFirst": "Please capture first",
+            "exportExcel": "Export Excel File",
+            "menu": "Menu",
+            "back": "Back"
         ]
     ]
     

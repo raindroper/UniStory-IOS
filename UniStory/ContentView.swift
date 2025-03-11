@@ -137,6 +137,8 @@ struct ContentView: View {
     
     @FocusState private var isInputFocused: Bool // 添加此行
     
+    @Environment(\.presentationMode) var presentationMode
+    
     init() {
         // 设置音频会话，允许在静音模式下播放声音
         do {
@@ -288,9 +290,9 @@ struct ContentView: View {
     
     var body: some View {
         NavigationView {
-            ZStack(alignment: .bottom) {
-                // 主要内容
-                GeometryReader { geometry in
+            GeometryReader { geometry in
+                ZStack(alignment: .bottom) {
+                    // 主要内容
                     VStack(spacing: 0) {
                         topNavigationBar
                         
@@ -320,7 +322,87 @@ struct ContentView: View {
                         // 主要内容视图
                         mainContentView(geometry)
                     }
+                    
+                    // 底部操作栏
+                    VStack(spacing: 0) {
+                        HStack(spacing: 10) {
+                            if let screenshotImage = screenshotImage {
+                                Image(uiImage: screenshotImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 100, height: 60)
+                                    .padding()
+                            } else {
+                                Text(localization.localizedString("captureFirst"))
+                                    .foregroundColor(.gray)
+                                    .frame(width: 100, height: 60)
+                                    .background(Color.black.opacity(0.1))
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(String(format: "%@: %@", 
+                                    localization.localizedString("time"), 
+                                    formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1))))
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%@: %d", 
+                                        localization.localizedString("lensNumber"), 
+                                        currentSeq))
+                                    Button(action: {
+                                        if let tempImage = tempImageInfo {
+                                            tempScreenForLensChange = tempImage
+                                            let maxNumber = screenList.count + 1
+                                            newLensNumber = "\(maxNumber)"
+                                            showLensNumberInput = true
+                                        }
+                                    }) {
+                                        Image(systemName: "pencil")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: takeScreenshot) {
+                                VStack(spacing: 5) {
+                                    Image(systemName: "camera")
+                                        .font(.system(size: 20))
+                                    Text(localization.localizedString("screenshot"))
+                                        .font(.caption)
+                                }
+                                .frame(width: 48, height: 55)
+                                .foregroundColor(.white)
+                                .background(Color.blue)
+                                .cornerRadius(10)
+                            }
+                            Button(action: insertScreen) {
+                                VStack(spacing: 5) {
+                                    Image(systemName: "plus.square")
+                                        .font(.system(size: 20))
+                                    Text(localization.localizedString("insert"))
+                                        .font(.caption)
+                                }
+                                .frame(width: 48, height: 55)
+                                .foregroundColor(.blue)
+                                .background(Color.blue.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                                )
+                                .cornerRadius(10)
+                            }
+                        }
+                        .padding([.leading, .trailing])
+                        .frame(height: 80)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(Color.white)
+                    .shadow(radius: 4, y: -2)
+                    .alignmentGuide(.bottom) { d in
+                        d[.bottom]
+                    }
                 }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
                 
                 // 添加导航链接
                 NavigationLink(destination: SettingsPageView(), isActive: $isSettingsActive) {
@@ -345,7 +427,7 @@ struct ContentView: View {
                                     set: { newValue in
                                         if var image = self.selectedImage {
                                             image.fields[index].value = newValue
-                                            self.selectedImage = image  // 重新赋值以更新状态
+                                            self.selectedImage = image
                                             saveChanges()
                                         }
                                     }
@@ -353,12 +435,12 @@ struct ContentView: View {
                                 .focused($isInputFocused)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .frame(minWidth: 0, maxWidth: 300)
-                                .background(Color.yellow) // 添加背景颜色以调试
+                                .background(Color.yellow)
                                 .onTapGesture {
-                                    isInputFocused = true // 设置焦点
+                                    isInputFocused = true
                                 }
                                 .onSubmit {
-                                    focusedFieldIndex = nil  // 当用户完成输入时清除聚焦状态
+                                    focusedFieldIndex = nil
                                 }
                             }
                             
@@ -370,85 +452,16 @@ struct ContentView: View {
                         }
                     }
                 }
-
-                
-                // 底部操作栏
-                VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        if let screenshotImage = screenshotImage {
-                            Image(uiImage: screenshotImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 200)
-                                .padding()
-                        } else {
-                            Text(localization.localizedString("captureFirst"))
-                                .foregroundColor(.gray)
-                                .frame(width: 100, height: 60)
-                                .background(Color.black.opacity(0.1))
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(String(format: "%@: %@", 
-                                localization.localizedString("time"), 
-                                formatVideoTime(screenShotTime ?? CMTime(seconds: 0, preferredTimescale: 1))))
-                            HStack(spacing: 4) {
-                                Text(String(format: "%@: %d", 
-                                    localization.localizedString("lensNumber"), 
-                                    currentSeq))
-                                Button(action: {
-                                    if let tempImage = tempImageInfo {
-                                        tempScreenForLensChange = tempImage
-                                        let maxNumber = screenList.count + 1
-                                        newLensNumber = "\(maxNumber)"
-                                        showLensNumberInput = true
-                                    }
-                                }) {
-                                    Image(systemName: "pencil")
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        Button(action: takeScreenshot) {
-                            VStack(spacing: 5) {
-                                Image(systemName: "camera")
-                                    .font(.system(size: 20))
-                                Text(localization.localizedString("screenshot"))
-                                    .font(.caption)
-                            }
-                            .frame(width: 48, height: 55)
-                            .foregroundColor(.white)
-                            .background(Color.blue)
-                            .cornerRadius(10)
-                        }
-                        Button(action: insertScreen) {
-                            VStack(spacing: 5) {
-                                Image(systemName: "plus.square")
-                                    .font(.system(size: 20))
-                                Text(localization.localizedString("insert"))
-                                    .font(.caption)
-                            }
-                            .frame(width: 48, height: 55)
-                            .foregroundColor(.blue)
-                            .background(Color.blue.opacity(0.1))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-                            )
-                            .cornerRadius(10)
-                        }
-                    }
-                    .padding([.leading, .trailing])
-                    .frame(height: 80)
-                    .background(Color.white)
-                }
-                .edgesIgnoringSafeArea(.all)
             }
         }
-        .navigationViewStyle(StackNavigationViewStyle())
+        .navigationBarBackButtonHidden(true)
+        .navigationBarItems(leading: Button(action: {
+            // 返回上一个页面
+            presentationMode.wrappedValue.dismiss()
+        }) {
+            Text(localization.localizedString("back"))
+                .foregroundColor(.blue)
+        })
         .sheet(isPresented: $showPicker) {
             PhotoPicker(videoURL: $videoURL, 
                         isLoadingVideo: $isLoadingVideo, 
